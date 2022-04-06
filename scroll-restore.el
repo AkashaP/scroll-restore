@@ -255,46 +255,47 @@ means `pos' was off-screen \(didn't appear in `window'\).")
 
 (defun scroll-restore-pre-command ()
   "Scroll Restore's pre-command function."
-  (let ((overlay-buffer (overlay-buffer scroll-restore-region-overlay)))
-    ;; Handle region overlay.
-    (when overlay-buffer
-      ;; Remove `transient-mark-mode' binding in any case.
-      (with-current-buffer overlay-buffer
-        (kill-local-variable 'transient-mark-mode))
-      (delete-overlay scroll-restore-region-overlay)))
-  ;; Handle cursor-type.
-  (when (and scroll-restore-buffer
-             (not (eq scroll-restore-buffer-cursor-type 'invalid))
-             (with-current-buffer scroll-restore-buffer
-               (eq cursor-type scroll-restore-cursor-type)))
-    (with-current-buffer scroll-restore-buffer
-      (setq cursor-type scroll-restore-buffer-cursor-type)
-      (setq scroll-restore-buffer-cursor-type 'invalid)))
-  ;; Handle cursor-color.
-  (when (and scroll-restore-frame scroll-restore-frame-cursor-color
-             (eq (frame-parameter scroll-restore-frame 'cursor-color)
-                 scroll-restore-cursor-color))
-    (let ((frame (selected-frame)))
-      (select-frame scroll-restore-frame)
-      (set-cursor-color scroll-restore-frame-cursor-color)
-      (setq scroll-restore-frame-cursor-color nil)
-      (select-frame frame)))
-  ;; Handle jumping.
-  (when (and scroll-restore-jump-back
-             (not (get this-command 'scroll-restore)))
-    (let ((entry (assq (selected-window) scroll-restore-alist)))
-      (when entry
-        (let ((window (car entry))
-              ;; (buffer (nth 1 entry))
-              (pos (nth 2 entry)))
-          (set-window-point window pos)
-          ;; We are on-screen now.
-          (setcdr (nthcdr 2 entry) (list nil))))))
-  ;; Paranoia.
-  (unless (or scroll-restore-jump-back scroll-restore-handle-region
-              scroll-restore-handle-cursor)
-    ;; Should be never reached.
-    (remove-hook 'pre-command-hook 'scroll-restore-pre-command)))
+  (ignore-errors
+    (let ((overlay-buffer (overlay-buffer scroll-restore-region-overlay)))
+      ;; Handle region overlay.
+      (when overlay-buffer
+        ;; Remove `transient-mark-mode' binding in any case.
+        (with-current-buffer overlay-buffer
+          (kill-local-variable 'transient-mark-mode))
+        (delete-overlay scroll-restore-region-overlay)))
+    ;; Handle cursor-type.
+    (when (and scroll-restore-buffer
+               (not (eq scroll-restore-buffer-cursor-type 'invalid))
+               (with-current-buffer scroll-restore-buffer
+                 (eq cursor-type scroll-restore-cursor-type)))
+      (with-current-buffer scroll-restore-buffer
+        (setq cursor-type scroll-restore-buffer-cursor-type)
+        (setq scroll-restore-buffer-cursor-type 'invalid)))
+    ;; Handle cursor-color.
+    (when (and scroll-restore-frame scroll-restore-frame-cursor-color
+               (eq (frame-parameter scroll-restore-frame 'cursor-color)
+                   scroll-restore-cursor-color))
+      (let ((frame (selected-frame)))
+        (select-frame scroll-restore-frame)
+        (set-cursor-color scroll-restore-frame-cursor-color)
+        (setq scroll-restore-frame-cursor-color nil)
+        (select-frame frame)))
+    ;; Handle jumping.
+    (when (and scroll-restore-jump-back
+               (not (get this-command 'scroll-restore)))
+      (let ((entry (assq (selected-window) scroll-restore-alist)))
+        (when entry
+          (let ((window (car entry))
+                ;; (buffer (nth 1 entry))
+                (pos (nth 2 entry)))
+            (set-window-point window pos)
+            ;; We are on-screen now.
+            (setcdr (nthcdr 2 entry) (list nil))))))
+    ;; Paranoia.
+    (unless (or scroll-restore-jump-back scroll-restore-handle-region
+                scroll-restore-handle-cursor)
+      ;; Should be never reached.
+      (remove-hook 'pre-command-hook 'scroll-restore-pre-command))))
 
 (defun scroll-restore-remove (&optional all)
   "Remove stale entries from `scroll-restore-alist'.
@@ -366,59 +367,60 @@ position."
 
 (defun scroll-restore-post-command ()
   "Scroll Restore mode post-command function."
-  (scroll-restore-remove)
-  (let (recenter)
-    (dolist (entry scroll-restore-alist)
-      (let ((window (car entry))
-            (buffer (nth 1 entry))
-            (pos (nth 2 entry))
-            (off (nth 3 entry)))
-        (if (get this-command 'scroll-restore)
-            ;; A scroll restore command.
-            (if off
-                ;; `pos' was off-screen.
-                (if (pos-visible-in-window-p (marker-position pos) window)
-                    ;; `pos' is on-screen now.
+  (ignore-errors
+    (scroll-restore-remove)
+    (let (recenter)
+      (dolist (entry scroll-restore-alist)
+        (let ((window (car entry))
+              (buffer (nth 1 entry))
+              (pos (nth 2 entry))
+              (off (nth 3 entry)))
+          (if (get this-command 'scroll-restore)
+              ;; A scroll restore command.
+              (if off
+                  ;; `pos' was off-screen.
+                  (if (pos-visible-in-window-p (marker-position pos) window)
+                      ;; `pos' is on-screen now.
+                      (progn
+                        ;; Move cursor to original position.
+                        (set-window-point window pos)
+                        ;; Recenter if desired.
+                        (when (and scroll-restore-recenter
+                                   (eq window (selected-window)))
+                          (setq recenter (/ (window-height window) 2)))
+                        ;; Record on-screen status.
+                        (setcdr (nthcdr 2 entry) (list nil))
+                        (scroll-restore-update 'off-on window buffer pos))
+                    ;; `pos' is still off-screen
+                    (scroll-restore-update 'off-off window buffer pos))
+                ;; `pos' was on-screen.
+                (if (pos-visible-in-window-p pos window)
+                    ;; `pos' is still on-screen.
                     (progn
-                      ;; Move cursor to original position.
-                      (set-window-point window pos)
-                      ;; Recenter if desired.
-                      (when (and scroll-restore-recenter
-                                 (eq window (selected-window)))
-                        (setq recenter (/ (window-height window) 2)))
-                      ;; Record on-screen status.
-                      (setcdr (nthcdr 2 entry) (list nil))
-                      (scroll-restore-update 'off-on window buffer pos))
-                  ;; `pos' is still off-screen
-                  (scroll-restore-update 'off-off window buffer pos))
-              ;; `pos' was on-screen.
-              (if (pos-visible-in-window-p pos window)
-                  ;; `pos' is still on-screen.
-                  (progn
-                    ;; Occasionally Emacs deliberately changes
-                    ;; `window-point' during scrolling even when
-                    ;; it's visible.  Maybe this is due to
-                    ;; `make-cursor-line-fully-visible' maybe due to
-                    ;; `scroll-margin' maybe due to something else.
-                    ;; We override that behavior here.
-                    (unless (= (window-point) pos)
-                      (set-window-point window pos))
-                    (scroll-restore-update 'on-on window buffer pos))
-                ;; `pos' moved off-screen.
-                ;; Record off-screen state.
-                (setcdr (nthcdr 2 entry) (list t))
-                (scroll-restore-update 'on-off window buffer pos)))
-          ;; Not a scroll-restore command.
-          (let ((window-point (window-point window)))
-                  (when (and (eq window (selected-window))
-                             (or (/= window-point pos) off))
-                    ;; Record position and on-screen status.
-                    (setcdr
-                     (nthcdr 1 entry)
-                     (list (move-marker pos (window-point window)) nil)))
-                  (scroll-restore-update t window buffer pos)))))
-    (scroll-restore-add)
-    (when recenter (recenter recenter))))
+                      ;; Occasionally Emacs deliberately changes
+                      ;; `window-point' during scrolling even when
+                      ;; it's visible.  Maybe this is due to
+                      ;; `make-cursor-line-fully-visible' maybe due to
+                      ;; `scroll-margin' maybe due to something else.
+                      ;; We override that behavior here.
+                      (unless (= (window-point) pos)
+                        (set-window-point window pos))
+                      (scroll-restore-update 'on-on window buffer pos))
+                  ;; `pos' moved off-screen.
+                  ;; Record off-screen state.
+                  (setcdr (nthcdr 2 entry) (list t))
+                  (scroll-restore-update 'on-off window buffer pos)))
+            ;; Not a scroll-restore command.
+            (let ((window-point (window-point window)))
+              (when (and (eq window (selected-window))
+                         (or (/= window-point pos) off))
+                ;; Record position and on-screen status.
+                (setcdr
+                 (nthcdr 1 entry)
+                 (list (move-marker pos (window-point window)) nil)))
+              (scroll-restore-update t window buffer pos)))))
+      (scroll-restore-add)
+      (when recenter (recenter recenter)))))
 
 (defun scroll-restore-jump-back ()
   "Jump back to original position.
